@@ -2,37 +2,11 @@ var http = require('http');
 var fs = require('fs');
 var url = require('url');
 var qs = require('querystring'); // querystring 모듈을 불러옴
+var path = require('path');
 
-function templateHTML(title, list, body, control){
-  return `
-    <!doctype html>
-    <html>
-    <head>
-      <title>WEB1 - ${title}</title>
-      <meta charset="utf-8">
-    </head>
-    <body>
-      <h1><a href="/">WEB</a></h1>
-      ${list}
-      ${control}
-      ${body}
-    </body>
-    </html>
-  `;
-}
+var template = require('./lib/template.js'); // 외부 template 파일을 불러옴
+var sanitizeHtml = require('sanitize-html');
 
-function templateList(filelist) {
-  var list = '<ul>';
-  var i = 0;
-  while(i < filelist.length){
-    list = list + `<li><a
-    href="/?id=${filelist[i]}">${filelist[i]}</a></li>`;
-    i = i + 1;
-  }
-  list = list + '</ul>';
-
-  return list;
-}
 // request 요청할때 웹브라우저가 보낸 정보, response 응답할때 우리가 웹브라우저에게 전송할 정보
 var app = http.createServer(function(request,response){
     var _url = request.url;
@@ -45,40 +19,53 @@ var app = http.createServer(function(request,response){
         fs.readdir('./data', function(error, filelist){
           var title = 'Welcome';
           var description = 'Hello, Node.js';
+
+          /*
           var list = templateList(filelist);
           var template = templateHTML(title, list,
             `<h2>${title}</h2>${description}`,
             `<a href="/create">create</a>`);
           response.writeHead(200); // 200 - 파일을 성공적으로 전송했음
           response.end(template);
+          */
+
+          var list = template.list(filelist);
+          var html = template.HTML(title, list,
+            `<h2>${title}</h2>${description}`,
+            `<a href="/create">create</a>`);
+          response.writeHead(200); // 200 - 파일을 성공적으로 전송했음
+          response.end(html);
         })
 
         // id 값을 선택한 페이지
       } else {
         fs.readdir('./data', function(error, filelist){
-          var list = templateList(filelist);
-          fs.readFile(`data/${queryData.id}`, 'utf8', function(err, description){
+          var filteredId = path.parse(queryData.id).base;
+          fs.readFile(`data/${filteredId}`, 'utf8', function(err, description){
             var title = queryData.id;
-            var template = templateHTML(title, list,
-              `<h2>${title}</h2>${description}`,
+            var sanitizedTitle = sanitizeHtml(title);
+            var sanitizedDescription = sanitizeHtml(description);
+            var list = template.list(filelist);
+            var html = template.HTML(title, list,
+              `<h2>${sanitizedTitle}</h2>${sanitizedDescription}`,
               `<a href="/create">create</a>
-              <a href="/update?id=${title}">update</a>
+              <a href="/update?id=${sanitizedTitle}">update</a>
               <form action="delete_process" method="post">
-                <input type="hidden" name="id" value="${title}">
+                <input type="hidden" name="id" value="${sanitizedTitle}">
                 <input type="submit" value="delete">
               </form>
               `
               );
             response.writeHead(200); // 200 - 파일을 성공적으로 전송했음
-            response.end(template);
+            response.end(html);
           });
         });
       }
     } else if(pathname === '/create'){
       fs.readdir('./data', function(error, filelist){
         var title = 'WEB - create';
-        var list = templateList(filelist);
-        var template = templateHTML(title, list, `
+        var list = template.list(filelist);
+        var html = template.HTML(title, list, `
           <form action="/create_process" method="post">
             <p><input type="text" name="title" placeholder="title" /></p>
             <p>
@@ -90,7 +77,7 @@ var app = http.createServer(function(request,response){
           </form>
           `, '');
         response.writeHead(200); // 200 - 파일을 성공적으로 전송했음
-        response.end(template);
+        response.end(html);
       })
     } else if(pathname === '/create_process') {
       var body = '';
@@ -116,10 +103,11 @@ var app = http.createServer(function(request,response){
 
     } else if(pathname === '/update'){
       fs.readdir('./data', function(error, filelist){
-        var list = templateList(filelist);
-        fs.readFile(`data/${queryData.id}`, 'utf8', function(err, description){
+        var filteredId = path.parse(queryData.id).base; // 외부에서 들어온 정보를 세탁
+        fs.readFile(`data/${filteredId}`, 'utf8', function(err, description){
           var title = queryData.id;
-          var template = templateHTML(title, list,
+          var list = template.list(filelist);
+          var html = template.HTML(title, list,
             `
             <form action="/update_process" method="post">
               <input type="hidden" name="id" value="${title}">
@@ -136,7 +124,7 @@ var app = http.createServer(function(request,response){
             href="/update?id=${title}">update</a>`
             );
           response.writeHead(200); // 200 - 파일을 성공적으로 전송했음
-          response.end(template);
+          response.end(html);
         });
       });
     } else if(pathname === '/update_process'){
@@ -179,9 +167,9 @@ var app = http.createServer(function(request,response){
       request.on('end', function(){
         var post = qs.parse(body);
         var id = post.id;
-
+        var filteredId = path.parse(id).base; // 상대방에게 정보를 열어주면 보안에 위험해지기 때문에, 경로를 세탁하는 것임.
         // unlink함수로 파일삭제 후 홈 화면으로 redirect
-        fs.unlink(`data/${id}`, function(error){
+        fs.unlink(`data/${filteredId}`, function(error){
           response.writeHead(302, {Location: `/`});
           response.end();
         })
